@@ -12,7 +12,6 @@ struct List: ParsableCommand {
     var format: OutputFormat = .text
 
     func run() throws {
-        try ContactsAccess.ensureAuthorized()
 
         var results = try ContactsAccess.listAll()
 

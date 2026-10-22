@@ -12,7 +12,6 @@ struct Search: ParsableCommand {
     var format: OutputFormat = .text
 
     func run() throws {
-        try ContactsAccess.ensureAuthorized()
         let results = try ContactsAccess.search(name: query)
         print(OutputFormatter.format(results, as: format))
     }

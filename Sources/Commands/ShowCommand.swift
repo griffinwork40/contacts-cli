@@ -12,7 +12,6 @@ struct Show: ParsableCommand {
     var format: OutputFormat = .text
 
     func run() throws {
-        try ContactsAccess.ensureAuthorized()
 
         guard let record = try ContactsAccess.show(identifier: identifier) else {
             throw ValidationError("No contact found with identifier '\(identifier)'.")

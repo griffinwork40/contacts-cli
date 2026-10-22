@@ -1,34 +1,39 @@
 import Contacts
 import Foundation
 
-/// Wrapper around CNContactStore for CLI usage.
+/// Wrapper around CNContactStore with AppleScript fallback for CLI usage.
+/// CNContactStore requires TCC permission for the terminal app, which
+/// unbundled CLI tools often cannot trigger. When denied, we fall back
+/// to osascript JXA which routes through Contacts.app.
 enum ContactsAccess {
 
-    /// Ensure we have contacts authorization; prompt if needed.
-    static func ensureAuthorized() throws {
-        let store = CNContactStore()
+    private static var useFallback: Bool = {
         let status = CNContactStore.authorizationStatus(for: .contacts)
-
         switch status {
-        case .authorized:
-            return
+        case .authorized, .limited:
+            return false
         case .notDetermined:
-            if !requestAccessSync(store: store) {
-                throw ContactsError.denied
+            // Try to get access; if it fails, use fallback
+            let store = CNContactStore()
+            let semaphore = DispatchSemaphore(value: 0)
+            var granted = false
+            store.requestAccess(for: .contacts) { result, _ in
+                granted = result
+                semaphore.signal()
             }
-        case .denied:
-            throw ContactsError.denied
-        case .restricted:
-            throw ContactsError.restricted
-        case .limited:
-            fputs("Warning: limited contacts access -- results may be incomplete.\n", stderr)
-        @unknown default:
-            throw ContactsError.denied
+            semaphore.wait()
+            return !granted
+        default:
+            return true
         }
-    }
+    }()
 
     /// Search contacts by name (given, family, or full name).
     static func search(name query: String) throws -> [ContactRecord] {
+        if useFallback {
+            fputs("(using Contacts.app fallback)\n", stderr)
+            return try AppleScriptFallback.search(name: query)
+        }
         let store = CNContactStore()
         let predicate = CNContact.predicateForContacts(matchingName: query)
         let contacts = try store.unifiedContacts(
@@ -40,6 +45,10 @@ enum ContactsAccess {
 
     /// Look up contacts by phone number.
     static func lookup(phone: String) throws -> [ContactRecord] {
+        if useFallback {
+            fputs("(using Contacts.app fallback)\n", stderr)
+            return try AppleScriptFallback.lookup(phone: phone)
+        }
         let store = CNContactStore()
         let phoneNumber = CNPhoneNumber(stringValue: phone)
         let predicate = CNContact.predicateForContacts(matching: phoneNumber)
@@ -52,6 +61,10 @@ enum ContactsAccess {
 
     /// Look up contacts by email address.
     static func lookup(email: String) throws -> [ContactRecord] {
+        if useFallback {
+            fputs("(using Contacts.app fallback)\n", stderr)
+            return try AppleScriptFallback.lookup(email: email)
+        }
         let store = CNContactStore()
         let predicate = CNContact.predicateForContacts(matchingEmailAddress: email)
         let contacts = try store.unifiedContacts(
@@ -63,6 +76,10 @@ enum ContactsAccess {
 
     /// Fetch a single contact by identifier.
     static func show(identifier: String) throws -> ContactRecord? {
+        if useFallback {
+            fputs("(using Contacts.app fallback)\n", stderr)
+            return try AppleScriptFallback.show(identifier: identifier)
+        }
         let store = CNContactStore()
         let predicate = CNContact.predicateForContacts(withIdentifiers: [identifier])
         let contacts = try store.unifiedContacts(
@@ -74,6 +91,10 @@ enum ContactsAccess {
 
     /// List all contacts, streamed via callback.
     static func listAll() throws -> [ContactRecord] {
+        if useFallback {
+            fputs("(using Contacts.app fallback)\n", stderr)
+            return try AppleScriptFallback.listAll()
+        }
         let store = CNContactStore()
         let request = CNContactFetchRequest(keysToFetch: ContactRecord.fetchKeys)
         request.sortOrder = .familyName
@@ -82,19 +103,6 @@ enum ContactsAccess {
             results.append(ContactRecord(from: contact))
         }
         return results
-    }
-
-    // MARK: - Private
-
-    private static func requestAccessSync(store: CNContactStore) -> Bool {
-        let semaphore = DispatchSemaphore(value: 0)
-        var granted = false
-        store.requestAccess(for: .contacts) { result, _ in
-            granted = result
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return granted
     }
 }
 

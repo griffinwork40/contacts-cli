@@ -21,7 +21,6 @@ struct Lookup: ParsableCommand {
     }
 
     func run() throws {
-        try ContactsAccess.ensureAuthorized()
 
         var results: [ContactRecord] = []
 
